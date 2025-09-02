@@ -6,11 +6,12 @@ package helpers
 
 import (
 	"context"
-	"k8s.io/klog/v2"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v4"
+	"k8s.io/klog/v2"
+
 	"github.com/gardener/machine-controller-manager-provider-azure/pkg/azure/access/errors"
 	"github.com/gardener/machine-controller-manager-provider-azure/pkg/azure/instrument"
 )
@@ -66,9 +67,9 @@ func GetNIC(ctx context.Context, client *armnetwork.InterfacesClient, resourceGr
 	return &resp.Interface, nil
 }
 
-// CreateNIC creates a NIC given the resourceGroup, nic name and NIC creation parameters.
+// CreateOrUpdateNIC creates a NIC given the resourceGroup, nic name and NIC creation parameters.
 // NOTE: All calls to this Azure API are instrumented as prometheus metric.
-func CreateNIC(ctx context.Context, nicAccess *armnetwork.InterfacesClient, resourceGroup string, nicParams armnetwork.Interface, nicName string) (nic *armnetwork.Interface, err error) {
+func CreateOrUpdateNIC(ctx context.Context, nicAccess *armnetwork.InterfacesClient, resourceGroup string, nicParams armnetwork.Interface, nicName string) (nic *armnetwork.Interface, err error) {
 	defer instrument.AZAPIMetricRecorderFn(nicCreateServiceLabel, &err)()
 
 	var (
@@ -80,12 +81,12 @@ func CreateNIC(ctx context.Context, nicAccess *armnetwork.InterfacesClient, reso
 
 	poller, err = nicAccess.BeginCreateOrUpdate(createCtx, resourceGroup, nicName, nicParams, nil)
 	if err != nil {
-		errors.LogAzAPIError(err, "Failed to trigger create of NIC [ResourceGroup: %s, Name: %s]", resourceGroup, nicName)
+		errors.LogAzAPIError(err, "Failed to trigger CreateOrUpdate of NIC [ResourceGroup: %s, Name: %s]", resourceGroup, nicName)
 		return nil, err
 	}
 	creationResp, err = poller.PollUntilDone(createCtx, nil)
 	if err != nil {
-		errors.LogAzAPIError(err, "Polling failed while waiting for Creation of NIC [ResourceGroup: %s, Name: %s]", resourceGroup, nicName)
+		errors.LogAzAPIError(err, "Polling failed while waiting for CreateOrUpdate of NIC [ResourceGroup: %s, Name: %s]", resourceGroup, nicName)
 	}
 	nic = &creationResp.Interface
 	return
