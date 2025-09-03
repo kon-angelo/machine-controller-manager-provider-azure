@@ -404,17 +404,17 @@ func CreateNICIfNotExists(ctx context.Context, factory access.Factory, connectCo
 		return "", status.WrapError(codes.Internal, fmt.Sprintf("failed to create NIC: [ResourceGroup: %s, Name: %s], Err: %v", providerSpec.ResourceGroup, nicName, err), err)
 	}
 
-	if providerSpec.BackendAddressPoolConfig != nil {
-		if err := AttachNICToBackendAddressPool(ctx, factory, connectConfig, providerSpec, nicName); err != nil {
-			return "", status.WrapError(codes.Internal, fmt.Sprintf("failed to attach NIC to BackendAddressPool: [ResourceGroup: %s, Name: %s], Err: %v", resourceGroup, nicName, err), err)
-		}
-	}
+	// if providerSpec.BackendAddressPoolConfig != nil {
+	// 	if err := AttachNICToBackendAddressPool(ctx, factory, connectConfig, providerSpec, nicName); err != nil {
+	// 		return "", status.WrapError(codes.Internal, fmt.Sprintf("failed to attach NIC to BackendAddressPool: [ResourceGroup: %s, Name: %s], Err: %v", resourceGroup, nicName, err), err)
+	// 	}
+	// }
 	klog.Infof("Successfully created NIC: [ResourceGroup: %s, NIC: [Name: %s, ID: %s]]", resourceGroup, nicName, *nic.ID)
 	return *nic.ID, nil
 }
 
 func createNICParams(providerSpec api.AzureProviderSpec, subnet *armnetwork.Subnet, nicName string) armnetwork.Interface {
-	return armnetwork.Interface{
+	ifc := armnetwork.Interface{
 		Location: to.Ptr(providerSpec.Location),
 		Properties: &armnetwork.InterfacePropertiesFormat{
 			EnableAcceleratedNetworking: providerSpec.Properties.NetworkProfile.AcceleratedNetworking,
@@ -434,6 +434,12 @@ func createNICParams(providerSpec api.AzureProviderSpec, subnet *armnetwork.Subn
 		Tags: createNICTags(providerSpec.Tags),
 		Name: &nicName,
 	}
+	if providerSpec.BackendAddressPoolConfig != nil {
+		ifc.Properties.IPConfigurations[0].Properties.LoadBalancerBackendAddressPools = []*armnetwork.BackendAddressPool{
+			{ID: ptr.To(providerSpec.BackendAddressPoolConfig.ID)},
+		}
+	}
+	return ifc
 }
 
 // AttachNICToBackendAddressPool attaches the NIC to the BackendAddressPool of the LoadBalancer if it exists.
@@ -499,11 +505,13 @@ func updateNICParamsForBackendPool(providerSpec api.AzureProviderSpec, ifc *armn
 	}
 
 	for _, pool := range ipConfiguration.Properties.LoadBalancerBackendAddressPools {
+		klog.Infof("FAAAAAAAAAAAAAAAAAAAAa")
 		if ptr.Deref(pool.ID, "") == providerSpec.BackendAddressPoolConfig.ID {
 			return ifc, false, nil
 		}
 	}
 
+	klog.Infof("1111111111111111111111")
 	ipConfiguration.Properties.LoadBalancerBackendAddressPools = append(ipConfiguration.Properties.LoadBalancerBackendAddressPools, &armnetwork.BackendAddressPool{ID: ptr.To(providerSpec.BackendAddressPoolConfig.ID)})
 
 	return ifc, true, nil
