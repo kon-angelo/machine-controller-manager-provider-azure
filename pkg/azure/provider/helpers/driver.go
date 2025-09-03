@@ -404,9 +404,10 @@ func CreateNICIfNotExists(ctx context.Context, factory access.Factory, connectCo
 		return "", status.WrapError(codes.Internal, fmt.Sprintf("failed to create NIC: [ResourceGroup: %s, Name: %s], Err: %v", providerSpec.ResourceGroup, nicName, err), err)
 	}
 
-	nicParams, modified, err := updateNICParamsForBackendPool(providerSpec, vmName, *nic)
-	if err != nil {
-		return status.WrapError(codes.Internal, fmt.Sprintf("failed to update NIC parameters for LB: [ResourceGroup: %s, Name: %s], Err: %v", resourceGroup, nicName, err), err)
+	if providerSpec.BackendAddressPoolConfig != nil {
+		if err := AttachNICToBackendAddressPool(ctx, factory, connectConfig, providerSpec, nicName); err != nil {
+			return "", status.WrapError(codes.Internal, fmt.Sprintf("failed to attach NIC to BackendAddressPool: [ResourceGroup: %s, Name: %s], Err: %v", resourceGroup, nicName, err), err)
+		}
 	}
 	klog.Infof("Successfully created NIC: [ResourceGroup: %s, NIC: [Name: %s, ID: %s]]", resourceGroup, nicName, *nic.ID)
 	return *nic.ID, nil
@@ -436,13 +437,12 @@ func createNICParams(providerSpec api.AzureProviderSpec, subnet *armnetwork.Subn
 }
 
 // AttachNICToBackendAddressPool attaches the NIC to the BackendAddressPool of the LoadBalancer if it exists.
-func AttachNICToBackendAddressPool(ctx context.Context, factory access.Factory, connectConfig access.ConnectConfig, providerSpec api.AzureProviderSpec, vmName string) error {
+func AttachNICToBackendAddressPool(ctx context.Context, factory access.Factory, connectConfig access.ConnectConfig, providerSpec api.AzureProviderSpec, nicName string) error {
 	nicAccess, err := factory.GetNetworkInterfacesAccess(connectConfig)
 	if err != nil {
 		return status.WrapError(codes.Internal, fmt.Sprintf("failed to create nic access, Err: %v", err), err)
 	}
 	resourceGroup := providerSpec.ResourceGroup
-	nicName := utils.CreateNICName(vmName)
 
 	nic, err := accesshelpers.GetNIC(ctx, nicAccess, resourceGroup, nicName)
 	if err != nil {
@@ -453,10 +453,11 @@ func AttachNICToBackendAddressPool(ctx context.Context, factory access.Factory, 
 		return status.WrapError(codes.Internal, err.Error(), err)
 	}
 
-	nicParams, modified, err := updateNICParamsForBackendPool(providerSpec, vmName, *nic)
+	nicParams, modified, err := updateNICParamsForBackendPool(providerSpec, nic)
 	if err != nil {
 		return status.WrapError(codes.Internal, fmt.Sprintf("failed to update NIC parameters for LB: [ResourceGroup: %s, Name: %s], Err: %v", resourceGroup, nicName, err), err)
 	}
+
 	if !modified {
 		klog.Infof("NIC already attached to BackendPool. NIC: [ResourceGroup: %s, NIC: [Name: %s, ID: %s]]", resourceGroup, nicName, *nic.ID)
 		return nil
@@ -471,7 +472,8 @@ func AttachNICToBackendAddressPool(ctx context.Context, factory access.Factory, 
 }
 
 // update the NIC parameters to include BackendAddressPool if it exists in the provider spec. It targets the Primary IPConfiguration and returns an error if no IPConfigurations are found in the NIC.
-func updateNICParamsForBackendPool(providerSpec api.AzureProviderSpec, vmName string, ifc armnetwork.Interface) (*armnetwork.Interface, bool, error) {
+func updateNICParamsForBackendPool(providerSpec api.AzureProviderSpec, ifc *armnetwork.Interface) (*armnetwork.Interface, bool, error) {
+	klog.Infof("2222222222222222222222")
 	if ifc.Properties == nil || ifc.Properties.IPConfigurations == nil || len(ifc.Properties.IPConfigurations) == 0 {
 		return nil, false, fmt.Errorf("no IPConfigurations found in NIC: [ResourceGroup: %s, Name: %s]", providerSpec.ResourceGroup, *ifc.Name)
 	}
@@ -479,36 +481,32 @@ func updateNICParamsForBackendPool(providerSpec api.AzureProviderSpec, vmName st
 	var ipConfiguration *armnetwork.InterfaceIPConfiguration
 	for _, ipConfig := range ifc.Properties.IPConfigurations {
 		if ipConfig.Properties != nil && ptr.Deref(ipConfig.Properties.Primary, false) {
-			klog.Infof("Found primary IPConfiguration in NIC: [ResourceGroup: %s, Machine: %s, Name: %s]", providerSpec.ResourceGroup, vmName, *ifc.Name)
+			klog.Infof("Found primary IPConfiguration in NIC: [ResourceGroup: %s, Name: %s]", providerSpec.ResourceGroup, *ifc.Name)
 			ipConfiguration = ipConfig
 			break
 		}
 	}
 	if ipConfiguration == nil {
-		return nil, false, fmt.Errorf("no primary IPConfiguration found in NIC: [ResourceGroup: %s, Machine: %s, Name: %s]", providerSpec.ResourceGroup, vmName, *ifc.Name)
+		return nil, false, fmt.Errorf("no primary IPConfiguration found in NIC: [ResourceGroup: %s, Name: %s]", providerSpec.ResourceGroup, *ifc.Name)
 	}
 
 	if ipConfiguration.Properties == nil {
 		ipConfiguration.Properties = &armnetwork.InterfaceIPConfigurationPropertiesFormat{}
 	}
 	if len(ipConfiguration.Properties.LoadBalancerBackendAddressPools) == 0 {
-		ipConfiguration.Properties.LoadBalancerBackendAddressPools = []*armnetwork.BackendAddressPool{
-			{
-				ID: ptr.To(providerSpec.BackendAddressPoolConfig.ID),
-			},
-		}
-		return &ifc, false, nil
+		ipConfiguration.Properties.LoadBalancerBackendAddressPools = append(ipConfiguration.Properties.LoadBalancerBackendAddressPools, &armnetwork.BackendAddressPool{ID: ptr.To(providerSpec.BackendAddressPoolConfig.ID)})
+		return ifc, false, nil
 	}
 
 	for _, pool := range ipConfiguration.Properties.LoadBalancerBackendAddressPools {
 		if ptr.Deref(pool.ID, "") == providerSpec.BackendAddressPoolConfig.ID {
-			return &ifc, false, nil
+			return ifc, false, nil
 		}
 	}
 
 	ipConfiguration.Properties.LoadBalancerBackendAddressPools = append(ipConfiguration.Properties.LoadBalancerBackendAddressPools, &armnetwork.BackendAddressPool{ID: ptr.To(providerSpec.BackendAddressPoolConfig.ID)})
 
-	return &ifc, true, nil
+	return ifc, true, nil
 }
 
 func createNICTags(tags map[string]string) map[string]*string {

@@ -97,18 +97,8 @@ func (d defaultDriver) CreateMachine(ctx context.Context, req *driver.CreateMach
 	return
 }
 
-func (d defaultDriver) InitializeMachine(ctx context.Context, req *driver.InitializeMachineRequest) (resp *driver.InitializeMachineResponse, err error) {
-	defer instrument.DriverAPIMetricRecorderFn(initializeMachineOperationLabel, &err)()
-	providerSpec, connectConfig, err := helpers.ExtractProviderSpecAndConnectConfig(req.MachineClass, req.Secret)
-	if err != nil {
-		return
-	}
-	vmName := req.Machine.Name
-	if providerSpec.BackendAddressPoolConfig == nil || providerSpec.BackendAddressPoolConfig.ID == "" {
-		return helpers.ConstructInitializeMachineResponse(providerSpec.Location, vmName), nil
-	}
-
-	return helpers.ConstructInitializeMachineResponse(providerSpec.Location, vmName), helpers.AttachNICToBackendAddressPool(ctx, d.factory, connectConfig, providerSpec, vmName)
+func (d defaultDriver) InitializeMachine(_ context.Context, _ *driver.InitializeMachineRequest) (*driver.InitializeMachineResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "Azure Provider does not yet implement InitializeMachine")
 }
 
 func (d defaultDriver) DeleteMachine(ctx context.Context, req *driver.DeleteMachineRequest) (resp *driver.DeleteMachineResponse, err error) {
