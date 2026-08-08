@@ -131,6 +131,7 @@ func validateProperties(properties api.AzureVirtualMachineProperties, fldPath *f
 	allErrs = append(allErrs, validateAvailabilityAndScalingConfig(properties, fldPath)...)
 	allErrs = append(allErrs, validateCapacityReservationConfig(properties.CapacityReservation, fldPath.Child("capacityReservation"))...)
 	allErrs = append(allErrs, validateSecurityProfile(properties.SecurityProfile, fldPath.Child("securityProfile"))...)
+	allErrs = append(allErrs, validateNetworkProfile(properties.NetworkProfile, fldPath.Child("networkProfile"))...)
 	return allErrs
 }
 
@@ -160,6 +161,21 @@ func validateSecurityProfile(securityProfile *api.AzureSecurityProfile, fldPath 
 		validValues := stringTypesToString(armcompute.PossibleSecurityTypesValues())
 		if ok := isValidEnumString(*st, validValues); !ok {
 			allErrs = append(allErrs, field.NotSupported(fldPath.Child("securityType"), st, validValues))
+		}
+	}
+
+	return allErrs
+}
+
+func validateNetworkProfile(networkProfile api.AzureNetworkProfile, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if sgID := networkProfile.SecurityGroupID; !utils.IsNilOrEmptyStringPtr(sgID) {
+		resourceID, err := arm.ParseResourceID(*sgID)
+		if err != nil {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("securityGroupID"), *sgID, fmt.Sprintf("invalid Azure resource ID: %v", err)))
+		} else if resourceType := resourceID.ResourceType.Type; !strings.EqualFold(resourceType, "networkSecurityGroups") {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("securityGroupID"), *sgID, fmt.Sprintf("provided resource ID must be of type 'networkSecurityGroups', got '%s'", resourceType)))
 		}
 	}
 

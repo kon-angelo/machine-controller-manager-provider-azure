@@ -397,7 +397,7 @@ func CreateNICIfNotExists(ctx context.Context, factory access.Factory, connectCo
 }
 
 func createNICParams(providerSpec api.AzureProviderSpec, subnet *armnetwork.Subnet, nicName string) armnetwork.Interface {
-	return armnetwork.Interface{
+	nic := armnetwork.Interface{
 		Location: new(providerSpec.Location),
 		Properties: &armnetwork.InterfacePropertiesFormat{
 			EnableAcceleratedNetworking: providerSpec.Properties.NetworkProfile.AcceleratedNetworking,
@@ -416,6 +416,10 @@ func createNICParams(providerSpec api.AzureProviderSpec, subnet *armnetwork.Subn
 		Tags: createNICTags(providerSpec.Tags),
 		Name: &nicName,
 	}
+	if sgID := providerSpec.Properties.NetworkProfile.SecurityGroupID; sgID != nil && *sgID != "" {
+		nic.Properties.NetworkSecurityGroup = &armnetwork.SecurityGroup{ID: sgID}
+	}
+	return nic
 }
 
 func createNICTags(tags map[string]string) map[string]*string {

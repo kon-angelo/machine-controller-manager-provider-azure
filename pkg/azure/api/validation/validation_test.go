@@ -611,6 +611,36 @@ func TestCapacityReservationConfig(t *testing.T) {
 	g.Expect(errList).To(BeEmpty())
 }
 
+func TestValidateNetworkProfile(t *testing.T) {
+	fldPath := field.NewPath("providerSpec.properties.networkProfile")
+
+	g := NewWithT(t)
+
+	// nil / empty SecurityGroupID: no error
+	errList := validateNetworkProfile(api.AzureNetworkProfile{}, fldPath)
+	g.Expect(errList).To(BeEmpty())
+	errList = validateNetworkProfile(api.AzureNetworkProfile{SecurityGroupID: ptr.To("")}, fldPath)
+	g.Expect(errList).To(BeEmpty())
+
+	// malformed ID: error
+	errList = validateNetworkProfile(api.AzureNetworkProfile{SecurityGroupID: ptr.To("not-a-resource-id")}, fldPath)
+	g.Expect(errList).To(HaveLen(1))
+	g.Expect(errList).To(ConsistOf(
+		PointTo(MatchFields(IgnoreExtras, Fields{"Type": Equal(field.ErrorTypeInvalid), "Field": Equal("providerSpec.properties.networkProfile.securityGroupID")})),
+	))
+
+	// wrong resource type: error
+	errList = validateNetworkProfile(api.AzureNetworkProfile{SecurityGroupID: ptr.To("/subscriptions/foo/resourceGroups/bar/providers/Microsoft.Network/virtualNetworks/baz")}, fldPath)
+	g.Expect(errList).To(HaveLen(1))
+	g.Expect(errList).To(ConsistOf(
+		PointTo(MatchFields(IgnoreExtras, Fields{"Type": Equal(field.ErrorTypeInvalid), "Field": Equal("providerSpec.properties.networkProfile.securityGroupID")})),
+	))
+
+	// valid NSG resource ID: no error
+	errList = validateNetworkProfile(api.AzureNetworkProfile{SecurityGroupID: ptr.To("/subscriptions/foo/resourceGroups/bar/providers/Microsoft.Network/networkSecurityGroups/baz")}, fldPath)
+	g.Expect(errList).To(BeEmpty())
+}
+
 func createSecret(clientID, clientSecret, workloadIdentityTokenFile, subscriptionID, tenantID, userData string) *corev1.Secret {
 	data := make(map[string][]byte, 4)
 	if !utils.IsEmptyString(clientID) {

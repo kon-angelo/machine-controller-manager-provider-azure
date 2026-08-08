@@ -291,6 +291,10 @@ type AzureNetworkProfile struct {
 	NetworkInterfaces AzureNetworkInterfaceReference `json:"networkInterfaces,omitempty"`
 	// AcceleratedNetworking specifies whether the network interface is accelerated networking-enabled.
 	AcceleratedNetworking *bool `json:"acceleratedNetworking,omitempty"`
+	// SecurityGroupID is the ARM resource ID of a network security group to associate with the primary NIC of the VM.
+	// When set, the NIC created for the machine gets its properties.networkSecurityGroup pointing at this NSG.
+	// When empty, no NSG is associated at the NIC level (the caller may still rely on subnet-level NSGs).
+	SecurityGroupID *string `json:"securityGroupID,omitempty"`
 }
 
 // AzureNetworkInterfaceReference describes a network interface reference.

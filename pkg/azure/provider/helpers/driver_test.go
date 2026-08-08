@@ -11,7 +11,9 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v4"
 	"github.com/gardener/machine-controller-manager-provider-azure/pkg/azure/access"
+	"github.com/gardener/machine-controller-manager-provider-azure/pkg/azure/api"
 	"github.com/gardener/machine-controller-manager-provider-azure/pkg/azure/testhelp"
 	"github.com/gardener/machine-controller-manager-provider-azure/pkg/azure/testhelp/fakes"
 	"github.com/gardener/machine-controller-manager/pkg/util/provider/machinecodes/codes"
@@ -19,6 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 func TestDeriveInstanceID(t *testing.T) {
@@ -233,6 +236,60 @@ func TestCreateVM(t *testing.T) {
 			if entry.checkErrorFn != nil {
 				entry.checkErrorFn(g, err)
 			}
+		})
+	}
+}
+
+func TestCreateNICParams(t *testing.T) {
+	const (
+		location = "westeurope"
+		nicName  = "vm-1-nic"
+	)
+	subnet := &armnetwork.Subnet{ID: ptr.To("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/sub")}
+
+	table := []struct {
+		description   string
+		securityGroup *string
+		assertNSG     func(g *WithT, nic armnetwork.Interface)
+	}{
+		{
+			description:   "no security group set — NIC has no NSG association",
+			securityGroup: nil,
+			assertNSG: func(g *WithT, nic armnetwork.Interface) {
+				g.Expect(nic.Properties.NetworkSecurityGroup).To(BeNil())
+			},
+		},
+		{
+			description:   "empty string security group — NIC has no NSG association",
+			securityGroup: ptr.To(""),
+			assertNSG: func(g *WithT, nic armnetwork.Interface) {
+				g.Expect(nic.Properties.NetworkSecurityGroup).To(BeNil())
+			},
+		},
+		{
+			description:   "security group ID set — NIC gets NSG reference",
+			securityGroup: ptr.To("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/my-nsg"),
+			assertNSG: func(g *WithT, nic armnetwork.Interface) {
+				g.Expect(nic.Properties.NetworkSecurityGroup).NotTo(BeNil())
+				g.Expect(nic.Properties.NetworkSecurityGroup.ID).To(PointTo(Equal("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/my-nsg")))
+			},
+		},
+	}
+
+	g := NewWithT(t)
+	for _, entry := range table {
+		t.Run(entry.description, func(_ *testing.T) {
+			spec := api.AzureProviderSpec{
+				Location: location,
+				Properties: api.AzureVirtualMachineProperties{
+					NetworkProfile: api.AzureNetworkProfile{SecurityGroupID: entry.securityGroup},
+				},
+			}
+			nic := createNICParams(spec, subnet, nicName)
+			g.Expect(*nic.Name).To(Equal(nicName))
+			g.Expect(nic.Properties.IPConfigurations).To(HaveLen(1))
+			g.Expect(nic.Properties.IPConfigurations[0].Properties.Subnet).To(Equal(subnet))
+			entry.assertNSG(g, nic)
 		})
 	}
 }
